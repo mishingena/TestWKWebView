@@ -26,15 +26,23 @@
 @property (nonatomic, strong) NSArray *items;
 
 @property (nonatomic, strong) UIProgressView *progressView;
+@property (weak, nonatomic) UIToolbar *toolBar;
+
+@property (nonatomic, strong) NSMutableArray *visitedLinks;
+@property (nonatomic) NSInteger currentPageIndex;
 
 @end
 
 @implementation ViewController
 
+
 #pragma mark - Life cycle
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    
+    self.currentPageIndex = 0;
+    self.visitedLinks = [NSMutableArray new];
     
     [self configureWebView];
     [self configureSearchBar];
@@ -49,6 +57,7 @@
     
     [self configureTableView];
     [self configureProgressView];
+    [self configureToolBar];
 }
 
 - (void)dealloc {
@@ -65,12 +74,15 @@
     webView.navigationDelegate = self;
     self.view = webView;
     webView.scrollView.delegate = self;
+    webView.allowsLinkPreview = YES;
     
     [webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionNew context:NULL];
     
-//    self.currentSiteString = @"https://www.hackingwithswift.com";
-//    NSURL *url = [NSURL URLWithString:@"https://www.hackingwithswift.com"];
-//    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    self.currentSiteString = @"about:blank";
+    NSURL *url = [NSURL URLWithString:self.currentSiteString];
+    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    [self.visitedLinks addObject: url];
+    
     self.webView.allowsBackForwardNavigationGestures = YES;
     
     self.webView = webView;
@@ -84,6 +96,7 @@
     
     UITextField *textField = [searchBar valueForKey:@"_searchField"];
     [textField setClearButtonMode:UITextFieldViewModeWhileEditing];
+    [textField setTextAlignment:NSTextAlignmentCenter];
     self.searchBarTextField = textField;
     textField.leftView = nil;
     
@@ -112,6 +125,44 @@
     progressView.frame = frame;
     
     self.progressView = progressView;
+}
+
+- (void)configureToolBar {
+    CGRect viewFrame = self.view.frame;
+    CGRect frame = CGRectMake(0, viewFrame.size.height - 44, viewFrame.size.width, 44.0);
+    UIToolbar *toolBar = [[UIToolbar alloc] initWithFrame:frame];
+    
+    UIBarButtonItem *prev = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemUndo target:self action:@selector(previousButtonPressed:)];
+    UIBarButtonItem *next = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRedo target:self action:@selector(nextButtonPressed:)];
+    
+    toolBar.items = @[prev, next];
+    
+    [self.view addSubview:toolBar];
+    self.toolBar = toolBar;
+}
+
+#pragma mark - Navigation
+
+- (void)previousButtonPressed:(UIBarButtonItem *)sender {
+    if (self.currentPageIndex > 0) {
+        self.currentPageIndex--;
+        
+        NSURL *url = self.visitedLinks[self.currentPageIndex];
+        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+        
+        self.searchBar.text = url.absoluteString;
+    }
+}
+
+- (void)nextButtonPressed:(UIBarButtonItem *)sender {
+    if (self.visitedLinks.count > 0 && self.currentPageIndex < self.visitedLinks.count - 1) {
+        self.currentPageIndex++;
+        
+        NSURL *url = self.visitedLinks[self.currentPageIndex];
+        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+        
+        self.searchBar.text = url.absoluteString;
+    }
 }
 
 #pragma mark - UISearchBar
@@ -216,6 +267,9 @@
     NSURL *url = [NSURL URLWithString:urlString];
     
     [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    
+    self.currentPageIndex++;
+    [self.visitedLinks addObject:url];
 }
 
 #pragma mark - Load progress
@@ -281,6 +335,21 @@
     
     [self searchBarEndTyping];
     [self searchText:item];
+}
+
+#pragma mark - WKWebView
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    if (navigationAction.navigationType == WKNavigationTypeLinkActivated) {
+        [webView loadRequest:navigationAction.request];
+        
+        self.currentPageIndex++;
+        [self.visitedLinks addObject:navigationAction.request.URL];
+        
+        self.searchBar.text = navigationAction.request.URL.absoluteString;
+        
+    }
+    decisionHandler(WKNavigationActionPolicyAllow);
 }
 
 
