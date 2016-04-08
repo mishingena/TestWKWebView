@@ -238,8 +238,8 @@
 #pragma mark - Search text in google
 
 - (void)searchSuggesionsWithText:(NSString *)text {
-    text = [text stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLHostAllowedCharacterSet]];
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://google.com/complete/search?output=firefox&q=%@", text]];
+    NSString *searchText = [text stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLHostAllowedCharacterSet]];
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://google.com/complete/search?output=firefox&q=%@", searchText]];
     
     [[self.session dataTaskWithURL:url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
         if (!error) {
