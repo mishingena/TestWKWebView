@@ -30,6 +30,7 @@
 
 @property (nonatomic, strong) NSMutableArray *visitedLinks;
 @property (nonatomic) NSInteger currentPageIndex;
+@property (nonatomic) BOOL reloading;
 
 @end
 
@@ -93,6 +94,10 @@
     searchBar.delegate = self;
     searchBar.placeholder = @"Search here";
     searchBar.text = self.currentSiteString;
+    searchBar.showsBookmarkButton = YES;
+    
+    [searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
+    [searchBar setImage:[UIImage imageNamed:@"icon-stop-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateHighlighted];
     
     UITextField *textField = [searchBar valueForKey:@"_searchField"];
     [textField setClearButtonMode:UITextFieldViewModeWhileEditing];
@@ -141,7 +146,7 @@
     self.toolBar = toolBar;
 }
 
-#pragma mark - Navigation
+#pragma mark - Actions
 
 - (void)previousButtonPressed:(UIBarButtonItem *)sender {
     if (self.currentPageIndex > 0) {
@@ -193,6 +198,21 @@
     }
 }
 
+- (void)searchBarBookmarkButtonClicked:(UISearchBar *)searchBar {
+    if (self.reloading) {
+        self.reloading = NO;
+        [searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
+        
+        [self.webView stopLoading];
+    } else {
+        self.reloading = YES;
+        [searchBar setImage:[UIImage imageNamed:@"icon-stop-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
+        
+        NSURL *url = self.visitedLinks[self.currentPageIndex];
+        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    }
+}
+
 - (void)searchBarStartTyping {
     [self.searchBar setShowsCancelButton:YES animated:YES];
     
@@ -228,9 +248,11 @@
         
         if (scrollView.contentOffset.y <= -64.0) {
             frame.size.height = 44;
+            self.searchBar.showsBookmarkButton = YES;
             self.searchBarTextField.backgroundColor = self.searchBarDefaultColor;
         } else {
             frame.size.height = 24;
+            self.searchBar.showsBookmarkButton = NO;
             self.searchBarTextField.backgroundColor = [UIColor clearColor];
         }
         
@@ -289,6 +311,9 @@
     } completion:^(BOOL finished) {
         if (value == 1) {
             self.progressView.progress = 0;
+            
+            self.reloading = NO;
+            [self.searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
         }
     }];
 }
