@@ -19,7 +19,6 @@
 @property (weak, nonatomic) UITextField *searchBarTextField;
 @property (nonatomic) BOOL editing;
 
-@property (nonatomic, strong) NSString *currentSiteString;
 @property (strong, nonatomic) UITableView *tableView;
 
 @property (nonatomic, strong) NSURLSession *session;
@@ -27,10 +26,6 @@
 
 @property (nonatomic, strong) UIProgressView *progressView;
 @property (weak, nonatomic) UIToolbar *toolBar;
-
-@property (nonatomic, strong) NSMutableArray *visitedLinks;
-@property (nonatomic) NSInteger currentPageIndex;
-@property (nonatomic) BOOL reloading;
 
 @end
 
@@ -41,9 +36,6 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    
-    self.currentPageIndex = 0;
-    self.visitedLinks = [NSMutableArray new];
     
     [self configureWebView];
     [self configureSearchBar];
@@ -79,11 +71,6 @@
     
     [webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionNew context:NULL];
     
-    self.currentSiteString = @"about:blank";
-    NSURL *url = [NSURL URLWithString:self.currentSiteString];
-    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
-    [self.visitedLinks addObject: url];
-    
     self.webView.allowsBackForwardNavigationGestures = YES;
     
     self.webView = webView;
@@ -93,7 +80,6 @@
     UISearchBar *searchBar = [UISearchBar new];
     searchBar.delegate = self;
     searchBar.placeholder = @"Search here";
-    searchBar.text = self.currentSiteString;
     searchBar.showsBookmarkButton = YES;
     
     [searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
@@ -101,7 +87,6 @@
     
     UITextField *textField = [searchBar valueForKey:@"_searchField"];
     [textField setClearButtonMode:UITextFieldViewModeWhileEditing];
-    [textField setTextAlignment:NSTextAlignmentCenter];
     self.searchBarTextField = textField;
     textField.leftView = nil;
     
@@ -149,24 +134,14 @@
 #pragma mark - Actions
 
 - (void)previousButtonPressed:(UIBarButtonItem *)sender {
-    if (self.currentPageIndex > 0) {
-        self.currentPageIndex--;
-        
-        NSURL *url = self.visitedLinks[self.currentPageIndex];
-        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
-        
-        self.searchBar.text = url.absoluteString;
+    if (self.webView.backForwardList.backItem) {
+        [self.webView goBack];
     }
 }
 
 - (void)nextButtonPressed:(UIBarButtonItem *)sender {
-    if (self.visitedLinks.count > 0 && self.currentPageIndex < self.visitedLinks.count - 1) {
-        self.currentPageIndex++;
-        
-        NSURL *url = self.visitedLinks[self.currentPageIndex];
-        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
-        
-        self.searchBar.text = url.absoluteString;
+    if (self.webView.backForwardList.forwardItem) {
+        [self.webView goForward];
     }
 }
 
@@ -179,8 +154,6 @@
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
-    self.currentSiteString = searchBar.text;
-    
     [self searchBarEndTyping];
     [self searchText:searchBar.text];
 }
@@ -199,17 +172,16 @@
 }
 
 - (void)searchBarBookmarkButtonClicked:(UISearchBar *)searchBar {
-    if (self.reloading) {
-        self.reloading = NO;
-        [searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
-        
-        [self.webView stopLoading];
-    } else {
-        self.reloading = YES;
-        [searchBar setImage:[UIImage imageNamed:@"icon-stop-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
-        
-        NSURL *url = self.visitedLinks[self.currentPageIndex];
-        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    if (self.webView.backForwardList.currentItem != nil) {
+        if (self.webView.isLoading) {
+            [searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
+            
+            [self.webView stopLoading];
+        } else {
+            [searchBar setImage:[UIImage imageNamed:@"icon-stop-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
+            
+            [self.webView reload];
+        }
     }
 }
 
@@ -233,7 +205,7 @@
     [self.searchBar endEditing:YES];
     
     [self.searchBarTextField setTextAlignment:NSTextAlignmentCenter];
-    self.searchBar.text = self.currentSiteString;
+    self.searchBar.text = self.webView.backForwardList.currentItem.title;
     self.editing = NO;
     [self.searchBar setShowsCancelButton:NO animated:YES];
     
@@ -289,9 +261,6 @@
     NSURL *url = [NSURL URLWithString:urlString];
     
     [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
-    
-    self.currentPageIndex++;
-    [self.visitedLinks addObject:url];
 }
 
 #pragma mark - Load progress
@@ -308,13 +277,6 @@
 - (void)updateProgressWithValue:(float)value {
     [UIView animateWithDuration:0.2 animations:^{
         self.progressView.progress = value;
-    } completion:^(BOOL finished) {
-        if (value == 1) {
-            self.progressView.progress = 0;
-            
-            self.reloading = NO;
-            [self.searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
-        }
     }];
 }
 
@@ -336,7 +298,6 @@
     [self.tableView removeFromSuperview];
 }
 
-
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     return self.items.count;
 }
@@ -356,10 +317,11 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     NSString *item = (NSString *)self.items[indexPath.row];
-    self.currentSiteString = item;
     
     [self searchBarEndTyping];
     [self searchText:item];
+    
+    self.searchBar.text = item;
 }
 
 #pragma mark - WKWebView
@@ -367,14 +329,20 @@
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated) {
         [webView loadRequest:navigationAction.request];
-        
-        self.currentPageIndex++;
-        [self.visitedLinks addObject:navigationAction.request.URL];
-        
-        self.searchBar.text = navigationAction.request.URL.absoluteString;
-        
     }
     decisionHandler(WKNavigationActionPolicyAllow);
+}
+
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    self.progressView.progress = 0;
+    
+    [self.searchBar setImage:[UIImage imageNamed:@"icon-refresh"] forSearchBarIcon:UISearchBarIconBookmark state:UIControlStateNormal];
+    
+    self.searchBar.text = self.webView.backForwardList.currentItem.title;
+}
+
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    self.progressView.progress = 0;
 }
 
 
